@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Monthly Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@500;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EBE5D3; --card:#F4EFE0; --ink:#1F3A33; --muted:#6C7A72; --brass:#9A7424; --rule:#C9C0A6; --red:#8A2F2F; --on-ink:#F4EFE0;
+  --serif:"Bodoni Moda","Didot",Georgia,serif; --mono:"Courier Prime","Courier New",monospace;
+  color-scheme:light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--paper:#14261F; --card:#1B3229; --ink:#EDE6D0; --muted:#97A59C; --brass:#C9A24D; --rule:#35504A; --red:#D98A80; --on-ink:#14261F; color-scheme:dark;}
+}
+:root[data-theme="dark"]{--paper:#14261F; --card:#1B3229; --ink:#EDE6D0; --muted:#97A59C; --brass:#C9A24D; --rule:#35504A; --red:#D98A80; --on-ink:#14261F; color-scheme:dark;}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100%;background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:16px;line-height:1.5}
+main{max-width:560px;margin:0 auto;padding:28px 18px 56px}
+h1{font-family:var(--serif);font-weight:700;font-size:2rem;margin:0;letter-spacing:.01em}
+.sub{color:var(--muted);margin:2px 0 22px;font-size:.9rem}
+.nav{display:flex;align-items:center;justify-content:space-between;border-top:3px double var(--ink);border-bottom:3px double var(--ink);padding:8px 0;margin-bottom:22px}
+.nav .m{font-family:var(--serif);font-size:1.25rem;font-weight:500}
+button{font:inherit;cursor:pointer;color:var(--ink);background:none;border:1px solid var(--ink);padding:8px 14px;border-radius:0}
+button:hover{background:var(--ink);color:var(--on-ink)}
+button.solid{background:var(--ink);color:var(--on-ink)}
+button.solid:hover{background:var(--brass);border-color:var(--brass);color:#fff}
+button.ghost{border:none;padding:4px 8px;color:var(--muted)}
+button.ghost:hover{background:none;color:var(--red)}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+.balance{text-align:center;padding:26px 12px 22px;background:var(--card);border:1px solid var(--ink);outline:1px solid var(--ink);outline-offset:4px}
+.balance .lbl{color:var(--muted);font-size:.9rem}
+.balance .amt{font-family:var(--serif);font-size:clamp(2.4rem,11vw,3.6rem);font-weight:700;line-height:1.1;margin:4px 0 14px}
+.balance .amt.neg{color:var(--red)}
+.bar{height:8px;border:1px solid var(--ink);margin:0 8px;background:transparent}
+.bar i{display:block;height:100%;background:var(--brass);width:0;transition:width .4s}
+.bar i.over{background:var(--red)}
+.stats{display:flex;justify-content:space-between;margin:10px 8px 0;font-size:.85rem;color:var(--muted)}
+form{margin-top:30px;display:grid;gap:10px}
+label{font-size:.85rem;color:var(--muted)}
+input{font:inherit;width:100%;padding:10px 12px;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:0}
+input:focus{outline:2px solid var(--brass);border-color:var(--ink)}
+.row{display:grid;grid-template-columns:1fr 1.6fr;gap:10px}
+h2{font-family:var(--serif);font-weight:500;font-size:1.3rem;margin:34px 0 6px}
+ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--ink)}
+li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:12px 0;border-bottom:1px dotted var(--muted)}
+li .note{font-weight:700;overflow-wrap:anywhere}
+li .note.none{font-weight:400;color:var(--muted)}
+li .date{color:var(--muted);font-size:.8rem}
+li .amt{text-align:right;font-weight:700}
+li .bal{text-align:right;color:var(--muted);font-size:.8rem}
+.empty{color:var(--muted);padding:18px 0;border-bottom:1px dotted var(--muted)}
+.setup{margin-top:10px;padding:22px;background:var(--card);border:1px solid var(--ink);outline:1px solid var(--ink);outline-offset:4px}
+.setup p{margin:0 0 14px}
+.foot{display:flex;gap:10px;justify-content:space-between;margin-top:26px;font-size:.85rem}
+.foot button{font-size:.85rem;padding:6px 10px}
+.err{color:var(--red);font-size:.85rem;min-height:1.2em}
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<main>
+  <h1>The Monthly Ledger</h1>
+  <p class="sub">Set a budget. Cross off every spend.</p>
+  <div class="nav">
+    <button class="ghost" id="prev" aria-label="Previous month">&lsaquo; Prev</button>
+    <span class="m" id="month"></span>
+    <button class="ghost" id="next" aria-label="Next month">Next &rsaquo;</button>
+  </div>
+  <div id="view"></div>
+</main>
+<script>
+(function(){
+  // ====== PASTE YOUR FIREBASE CONFIG HERE ======
+  var firebaseConfig={apiKey:"IzaSyAGNp0Go4JlW3epz2sNh3dntvEUwfv8DSI",authDomain:"my-ledger-c8fc5.firebaseapp.com",projectId:"my-ledger-c8fc5",appId:"1:710243754814:web:2042b6f931a864d03b026f"};
+  // ==============================================
+  var cloud=!!window.firebase && firebaseConfig.apiKey.indexOf("PASTE")!==0;
+  var KEY="monthly-ledger-v1", mem={months:{}}, db=null, auth=null, uid=null, state={months:{}};
+  function col(){return db.collection("users").doc(uid).collection("months")}
+  function fail(e){alert("Could not sync: "+(e&&e.message||e))}
+  function save(k){if(cloud){col().doc(k).set(state.months[k]).catch(fail)}else{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){mem=state}}}
+  function remove(k){if(cloud){col().doc(k).delete().catch(fail)}else save(k)}
+  if(!cloud){try{var r=localStorage.getItem(KEY);if(r)state=JSON.parse(r)}catch(e){}if(!state||!state.months)state={months:{}}}
+  function authView(){
+    $("view").innerHTML='<div class="setup"><p>Sign in to sync your ledger across all your devices.</p><form id="af"><label for="em">Email</label><input id="em" type="email" autocomplete="email" required><label for="pw">Password (6+ characters)</label><input id="pw" type="password" autocomplete="current-password" minlength="6" required><div class="err" id="er"></div><button class="solid" type="submit">Sign in</button><button type="button" id="su">Create account</button></form></div>';
+    var go=function(create){var e=$("em").value.trim(),p=$("pw").value;
+      if(!e||p.length<6){$("er").textContent="Enter an email and a password of 6+ characters.";return}
+      auth[create?"createUserWithEmailAndPassword":"signInWithEmailAndPassword"](e,p).catch(function(x){$("er").textContent=String(x.message).replace("Firebase: ","")})};
+    $("af").onsubmit=function(ev){ev.preventDefault();go(false)};
+    $("su").onclick=function(){go(true)};
+  }
+  var now=new Date(), cur=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0");
+  var fmt=new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2});
+  var $=function(id){return document.getElementById(id)};
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function label(k){var p=k.split("-");return new Date(+p[0],+p[1]-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"})}
+  function shift(k,d){var p=k.split("-"),dt=new Date(+p[0],+p[1]-1+d,1);return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")}
+
+  function render(){
+    document.querySelector(".nav").style.display=(cloud&&!uid)?"none":"";
+    if(cloud&&!uid){authView();return}
+    $("month").textContent=label(cur);
+    var m=state.months[cur], v=$("view");
+    if(!m){
+      v.innerHTML='<div class="setup"><p>No budget set for '+label(cur)+'. How much will you spend this month?</p>'+
+        '<form id="bf"><label for="b">Monthly budget (₹)</label><input id="b" type="number" min="1" step="any" inputmode="decimal" required placeholder="e.g. 30000">'+
+        '<button class="solid" type="submit">Start the month</button></form></div>';
+      $("bf").onsubmit=function(e){e.preventDefault();var b=parseFloat($("b").value);if(!(b>0))return;state.months[cur]={budget:b,tx:[]};save(cur);render()};
+      return;
+    }
+    var spent=m.tx.reduce(function(a,t){return a+t.amount},0), left=m.budget-spent, pct=Math.min(100,spent/m.budget*100);
+    var run=m.budget, rows=m.tx.map(function(t){run-=t.amount;return{t:t,r:run}}).reverse();
+    var list=rows.length?rows.map(function(o){
+      var d=new Date(o.t.date).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+      return '<li><span class="note'+(o.t.note?'':' none')+'">'+(o.t.note?esc(o.t.note):'No note')+'</span><span class="amt">−'+fmt.format(o.t.amount)+'</span>'+
+        '<span class="date">'+d+' <button class="ghost" data-del="'+o.t.id+'" aria-label="Delete transaction">remove</button></span><span class="bal">left '+fmt.format(o.r)+'</span></li>';
+    }).join(""):'<div class="empty">Nothing spent yet. Add your first transaction above.</div>';
+    v.innerHTML='<section class="balance"><div class="lbl">Remaining</div><div class="amt'+(left<0?' neg':'')+'">'+fmt.format(left)+'</div>'+
+      '<div class="bar"><i class="'+(left<0?'over':'')+'" style="width:'+pct+'%"></i></div>'+
+      '<div class="stats"><span>Spent '+fmt.format(spent)+'</span><span>Budget '+fmt.format(m.budget)+'</span></div></section>'+
+      '<form id="tf"><div class="row"><div><label for="a">Amount (₹)</label><input id="a" type="number" min="0.01" step="any" inputmode="decimal" required placeholder="0.00"></div>'+
+      '<div><label for="n">Note</label><input id="n" type="text" maxlength="120" placeholder="Groceries, auto fare…"></div></div>'+
+      '<button class="solid" type="submit">Cut from budget</button></form>'+
+      '<h2>Transactions</h2><ul id="ul" style="'+(rows.length?'':'border-top:1px solid var(--ink)')+'">'+(rows.length?list:'')+'</ul>'+(rows.length?'':list)+
+      '<div class="foot"><button id="eb">Edit budget</button><button id="rs">Clear this month</button>'+(cloud?'<button id="so">Sign out</button>':'')+'</div>';
+    if($("so"))$("so").onclick=function(){auth.signOut()};
+    $("tf").onsubmit=function(e){e.preventDefault();var a=parseFloat($("a").value);if(!(a>0))return;
+      m.tx.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),amount:a,note:$("n").value.trim(),date:new Date().toISOString()});save(cur);render();$("a").focus()};
+    v.onclick=function(e){var id=e.target.getAttribute&&e.target.getAttribute("data-del");
+      if(id){m.tx=m.tx.filter(function(t){return t.id!==id});save(cur);render()}};
+    $("eb").onclick=function(){var x=prompt("New monthly budget (₹)",m.budget);var b=parseFloat(x);if(b>0){m.budget=b;save(cur);render()}};
+    $("rs").onclick=function(){if(confirm("Delete the budget and all transactions for "+label(cur)+"?")){delete state.months[cur];remove(cur);render()}};
+  }
+  $("prev").onclick=function(){cur=shift(cur,-1);render()};
+  $("next").onclick=function(){cur=shift(cur,1);render()};
+  if(cloud){
+    firebase.initializeApp(firebaseConfig);auth=firebase.auth();db=firebase.firestore();
+    var unsub=null;$("view").innerHTML='<p class="sub">Loading…</p>';
+    auth.onAuthStateChanged(function(u){
+      if(unsub){unsub();unsub=null}
+      if(!u){uid=null;state={months:{}};render();return}
+      uid=u.uid;
+      unsub=col().onSnapshot(function(snap){
+        if(snap.metadata.hasPendingWrites)return;
+        state.months={};snap.forEach(function(d){state.months[d.id]=d.data()});render();
+      },fail);
+    });
+  }else render();
+})();
+</script>
+</body>
+</html>
