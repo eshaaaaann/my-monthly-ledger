@@ -60,8 +60,12 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
 .foot button{font-size:.85rem;padding:6px 10px}
 .err{color:var(--red);font-size:.85rem;min-height:1.2em}
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-#who{font-size:.85rem;color:var(--brass);border:1px solid var(--rule);padding:4px 10px;white-space:nowrap;max-width:45%;overflow:hidden;text-overflow:ellipsis;margin-top:6px}
-#who:empty{display:none}
+#pf{margin-top:6px;padding:4px 14px;font-size:.85rem;white-space:nowrap}
+.mrow{display:flex;justify-content:space-between;gap:12px;width:100%;text-align:left;border:none;border-bottom:1px dotted var(--muted);padding:13px 4px}
+.mrow:hover{background:var(--card);color:var(--ink)}
+.sum{border:1px solid var(--ink);background:var(--card);padding:12px 16px;margin:10px 0 4px}
+.sum div{display:flex;justify-content:space-between;padding:3px 0}
+#bk{font-size:.85rem;padding:6px 10px}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -69,7 +73,7 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
 </head>
 <body>
 <main>
-  <header class="top"><h1>The Monthly Ledger</h1><span id="who"></span></header>
+  <header class="top"><h1>The Monthly Ledger</h1><button id="pf" type="button">Profile</button></header>
   <p class="sub">Set a budget. Cross off every spend.</p>
   <div class="nav">
     <button class="ghost" id="prev" aria-label="Previous month">&lsaquo; Prev</button>
@@ -85,7 +89,8 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
   // ==============================================
   var cloud=!!window.firebase && firebaseConfig.apiKey.indexOf("PASTE")!==0;
   var KEY="monthly-ledger-v1", mem={months:{}}, db=null, auth=null, uid=null, userName="", state={months:{}};
-  function showUser(){$("who").textContent=(cloud&&uid)?userName:""}
+  var screen="ledger", stmtKey=null;
+  function showUser(){$("pf").style.display=(cloud&&!uid)?"none":""}
   function col(){return db.collection("users").doc(uid).collection("months")}
   function fail(e){alert("Could not sync: "+(e&&e.message||e))}
   function save(k){if(cloud){col().doc(k).set(state.months[k]).catch(fail)}else{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){mem=state}}}
@@ -109,10 +114,42 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
   function label(k){var p=k.split("-");return new Date(+p[0],+p[1]-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"})}
   function shift(k,d){var p=k.split("-"),dt=new Date(+p[0],+p[1]-1+d,1);return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")}
 
+  function spentOf(m){return m.tx.reduce(function(a,t){return a+t.amount},0)}
+  function txList(m){
+    var run=m.budget, rows=m.tx.map(function(t){run-=t.amount;return{t:t,r:run}}).reverse();
+    if(!rows.length)return '<div class="empty">No transactions this month.</div>';
+    return '<ul>'+rows.map(function(o){
+      var d=new Date(o.t.date).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+      return '<li><span class="note'+(o.t.note?'':' none')+'">'+(o.t.note?esc(o.t.note):'No note')+'</span><span class="amt">−'+fmt.format(o.t.amount)+'</span><span class="date">'+d+'</span><span class="bal">left '+fmt.format(o.r)+'</span></li>';
+    }).join("")+'</ul>';
+  }
+  function profileView(){
+    var v=$("view"), real=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0");
+    var keys=Object.keys(state.months).filter(function(k){return k<=real}).sort().reverse();
+    var rows=keys.map(function(k){return '<button class="mrow" data-m="'+k+'"><span>'+label(k)+(k===real?' (this month)':'')+'</span><span>'+fmt.format(spentOf(state.months[k]))+' spent</span></button>'}).join("");
+    var nameBox=(cloud&&auth.currentUser)?'<h2>Your name</h2><form id="nf"><label for="pn">Name</label><input id="pn" type="text" maxlength="40" value="'+esc(userName)+'"><div class="err" id="nmsg"></div><button class="solid" type="submit">Save name</button></form><p class="sub">Signed in as '+esc(auth.currentUser.email||"")+'</p>':'';
+    v.innerHTML=nameBox+'<h2>Past months</h2>'+(rows?'<div style="border-top:1px solid var(--ink)">'+rows+'</div>':'<div class="empty">Months you have budgeted will be listed here, with the total spent.</div>')+(cloud?'<div class="foot"><button id="so">Sign out</button></div>':'');
+    v.onclick=function(e){var b=e.target.closest&&e.target.closest("[data-m]");if(b){stmtKey=b.getAttribute("data-m");screen="stmt";render()}};
+    if($("nf"))$("nf").onsubmit=function(e){e.preventDefault();var n=$("pn").value.trim(),msg=$("nmsg");
+      if(!n){msg.style.color="";msg.textContent="Name can’t be empty.";return}
+      auth.currentUser.updateProfile({displayName:n}).then(function(){userName=n;msg.style.color="var(--brass)";msg.textContent="Name saved."}).catch(fail)};
+    if($("so"))$("so").onclick=function(){screen="ledger";auth.signOut()};
+  }
+  function stmtView(){
+    var m=state.months[stmtKey];
+    if(!m){screen="profile";render();return}
+    var sp=spentOf(m), left=m.budget-sp, v=$("view");
+    v.innerHTML='<button id="bk" type="button">&lsaquo; Back to profile</button><h2>'+label(stmtKey)+'</h2><div class="sum"><div><span>Budget</span><span>'+fmt.format(m.budget)+'</span></div><div><span>Spent</span><span>'+fmt.format(sp)+'</span></div><div><span>'+(left<0?'Overspent':'Left')+'</span><span'+(left<0?' style="color:var(--red)"':'')+'>'+fmt.format(Math.abs(left))+'</span></div></div><h2>Statement</h2>'+txList(m);
+    v.onclick=null;
+    $("bk").onclick=function(){screen="profile";render()};
+  }
   function render(){
-    document.querySelector(".nav").style.display=(cloud&&!uid)?"none":"";
+    document.querySelector(".nav").style.display=(screen!=="ledger"||(cloud&&!uid))?"none":"";
     if(cloud&&!uid){authView();return}
     showUser();
+    $("pf").textContent=screen==="ledger"?"Profile":"Ledger";
+    if(screen==="profile"){profileView();return}
+    if(screen==="stmt"){stmtView();return}
     $("month").textContent=label(cur);
     var m=state.months[cur], v=$("view");
     if(!m){
@@ -136,8 +173,7 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
       '<div><label for="n">Note</label><input id="n" type="text" maxlength="120" placeholder="Groceries, auto fare…"></div></div>'+
       '<button class="solid" type="submit">Cut from budget</button></form>'+
       '<h2>Transactions</h2><ul id="ul" style="'+(rows.length?'':'border-top:1px solid var(--ink)')+'">'+(rows.length?list:'')+'</ul>'+(rows.length?'':list)+
-      '<div class="foot"><button id="eb">Edit budget</button><button id="rs">Clear this month</button>'+(cloud?'<button id="so">Sign out</button>':'')+'</div>';
-    if($("so"))$("so").onclick=function(){auth.signOut()};
+      '<div class="foot"><button id="eb">Edit budget</button><button id="rs">Clear this month</button>'+'</div>';
     $("tf").onsubmit=function(e){e.preventDefault();var a=parseFloat($("a").value);if(!(a>0))return;
       m.tx.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),amount:a,note:$("n").value.trim(),date:new Date().toISOString()});save(cur);render();$("a").focus()};
     v.onclick=function(e){var id=e.target.getAttribute&&e.target.getAttribute("data-del");
@@ -145,6 +181,7 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
     $("eb").onclick=function(){var x=prompt("New monthly budget (₹)",m.budget);var b=parseFloat(x);if(b>0){m.budget=b;save(cur);render()}};
     $("rs").onclick=function(){if(confirm("Delete the budget and all transactions for "+label(cur)+"?")){delete state.months[cur];remove(cur);render()}};
   }
+  $("pf").onclick=function(){screen=screen==="ledger"?"profile":"ledger";render()};
   $("prev").onclick=function(){cur=shift(cur,-1);render()};
   $("next").onclick=function(){cur=shift(cur,1);render()};
   if(cloud){
