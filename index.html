@@ -59,6 +59,9 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
 .foot{display:flex;gap:10px;justify-content:space-between;margin-top:26px;font-size:.85rem}
 .foot button{font-size:.85rem;padding:6px 10px}
 .err{color:var(--red);font-size:.85rem;min-height:1.2em}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#who{font-size:.85rem;color:var(--brass);border:1px solid var(--rule);padding:4px 10px;white-space:nowrap;max-width:45%;overflow:hidden;text-overflow:ellipsis;margin-top:6px}
+#who:empty{display:none}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -66,7 +69,7 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
 </head>
 <body>
 <main>
-  <h1>The Monthly Ledger</h1>
+  <header class="top"><h1>The Monthly Ledger</h1><span id="who"></span></header>
   <p class="sub">Set a budget. Cross off every spend.</p>
   <div class="nav">
     <button class="ghost" id="prev" aria-label="Previous month">&lsaquo; Prev</button>
@@ -81,17 +84,21 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
   var firebaseConfig={apiKey:"AIzaSyAGNp0Go4JlW3epz2sNh3dntvEUwfv8DSI",authDomain:"my-ledger-c8fc5.firebaseapp.com",projectId:"my-ledger-c8fc5",appId:"1:710243754814:web:2042b6f931a864d03b026f"};
   // ==============================================
   var cloud=!!window.firebase && firebaseConfig.apiKey.indexOf("PASTE")!==0;
-  var KEY="monthly-ledger-v1", mem={months:{}}, db=null, auth=null, uid=null, state={months:{}};
+  var KEY="monthly-ledger-v1", mem={months:{}}, db=null, auth=null, uid=null, userName="", state={months:{}};
+  function showUser(){$("who").textContent=(cloud&&uid)?userName:""}
   function col(){return db.collection("users").doc(uid).collection("months")}
   function fail(e){alert("Could not sync: "+(e&&e.message||e))}
   function save(k){if(cloud){col().doc(k).set(state.months[k]).catch(fail)}else{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){mem=state}}}
   function remove(k){if(cloud){col().doc(k).delete().catch(fail)}else save(k)}
   if(!cloud){try{var r=localStorage.getItem(KEY);if(r)state=JSON.parse(r)}catch(e){}if(!state||!state.months)state={months:{}}}
   function authView(){
-    $("view").innerHTML='<div class="setup"><p>Sign in to sync your ledger across all your devices.</p><form id="af"><label for="em">Email</label><input id="em" type="email" autocomplete="email" required><label for="pw">Password (6+ characters)</label><input id="pw" type="password" autocomplete="current-password" minlength="6" required><div class="err" id="er"></div><button class="solid" type="submit">Sign in</button><button type="button" id="su">Create account</button></form></div>';
-    var go=function(create){var e=$("em").value.trim(),p=$("pw").value;
+    $("view").innerHTML='<div class="setup"><p>Sign in to sync your ledger across all your devices.</p><form id="af"><label for="nm">Name (needed when creating an account)</label><input id="nm" type="text" autocomplete="name" maxlength="40"><label for="em">Email</label><input id="em" type="email" autocomplete="email" required><label for="pw">Password (6+ characters)</label><input id="pw" type="password" autocomplete="current-password" minlength="6" required><div class="err" id="er"></div><button class="solid" type="submit">Sign in</button><button type="button" id="su">Create account</button></form></div>';
+    var go=function(create){var nm=$("nm").value.trim(),e=$("em").value.trim(),p=$("pw").value;
+      if(create&&!nm){$("er").textContent="Enter your name to create an account.";return}
       if(!e||p.length<6){$("er").textContent="Enter an email and a password of 6+ characters.";return}
-      auth[create?"createUserWithEmailAndPassword":"signInWithEmailAndPassword"](e,p).catch(function(x){$("er").textContent=String(x.message).replace("Firebase: ","")})};
+      var fail=function(x){$("er").textContent=String(x.message).replace("Firebase: ","")};
+      if(create){auth.createUserWithEmailAndPassword(e,p).then(function(c){userName=nm;showUser();return c.user.updateProfile({displayName:nm})}).catch(fail)}
+      else auth.signInWithEmailAndPassword(e,p).catch(fail)};
     $("af").onsubmit=function(ev){ev.preventDefault();go(false)};
     $("su").onclick=function(){go(true)};
   }
@@ -105,6 +112,7 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
   function render(){
     document.querySelector(".nav").style.display=(cloud&&!uid)?"none":"";
     if(cloud&&!uid){authView();return}
+    showUser();
     $("month").textContent=label(cur);
     var m=state.months[cur], v=$("view");
     if(!m){
@@ -145,7 +153,7 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
     auth.onAuthStateChanged(function(u){
       if(unsub){unsub();unsub=null}
       if(!u){uid=null;state={months:{}};render();return}
-      uid=u.uid;
+      uid=u.uid;userName=u.displayName||(u.email||"").split("@")[0];showUser();
       unsub=col().onSnapshot(function(snap){
         if(snap.metadata.hasPendingWrites)return;
         state.months={};snap.forEach(function(d){state.months[d.id]=d.data()});render();
