@@ -65,11 +65,12 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
 .mrow:hover{background:var(--card);color:var(--ink)}
 .sum{border:1px solid var(--ink);background:var(--card);padding:12px 16px;margin:10px 0 4px}
 .sum div{display:flex;justify-content:space-between;padding:3px 0}
-#bk{font-size:.85rem;padding:6px 10px}
+#bk,#dl{font-size:.85rem;padding:6px 10px}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <main>
@@ -123,6 +124,69 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
       return '<li><span class="note'+(o.t.note?'':' none')+'">'+(o.t.note?esc(o.t.note):'No note')+'</span><span class="amt">−'+fmt.format(o.t.amount)+'</span><span class="date">'+d+'</span><span class="bal">left '+fmt.format(o.r)+'</span></li>';
     }).join("")+'</ul>';
   }
+  function money(n){return "Rs. "+n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})}
+  function clean(t){return String(t).replace(/[^\x20-\x7E\u00A0-\u00FF]/g,"?")}
+  function makePdf(k){
+    var m=state.months[k];
+    if(!m||!window.jspdf){alert("The PDF tool could not load. Check your connection and try again.");return}
+    var doc=new window.jspdf.jsPDF({unit:"mm",format:"a4"}), W=210, H=297, M=18;
+    var C={paper:[235,229,211],card:[244,239,224],ink:[31,58,51],brass:[154,116,36],muted:[108,122,114],red:[138,47,47]};
+    var txt=function(c){doc.setTextColor(c[0],c[1],c[2])}, draw=function(c){doc.setDrawColor(c[0],c[1],c[2])}, fill=function(c){doc.setFillColor(c[0],c[1],c[2])};
+    var sp=spentOf(m), left=m.budget-sp, y;
+    function page(){
+      fill(C.paper);doc.rect(0,0,W,H,"F");
+      doc.setFont("times","bold");doc.setFontSize(26);txt(C.ink);doc.text("The Monthly Ledger",M,28);
+      doc.setFont("courier","normal");doc.setFontSize(10);txt(C.muted);doc.text("Statement for "+clean(label(k)),M,35);
+      var who=(cloud&&userName)?clean(userName):"";
+      if(who)doc.text(who,W-M,28,{align:"right"});
+      doc.text("Generated "+new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}),W-M,35,{align:"right"});
+      draw(C.ink);doc.setLineWidth(0.8);doc.line(M,41,W-M,41);doc.setLineWidth(0.25);doc.line(M,42.6,W-M,42.6);
+    }
+    function head(){
+      doc.setFont("courier","bold");doc.setFontSize(8.5);txt(C.muted);
+      doc.text("DATE",M,y);doc.text("NOTE",M+34,y);doc.text("AMOUNT",W-M-36,y,{align:"right"});doc.text("BALANCE",W-M,y,{align:"right"});
+      draw(C.ink);doc.setLineWidth(0.4);doc.line(M,y+2.5,W-M,y+2.5);y+=8;
+    }
+    page();
+    // summary card
+    y=52;var h=26,cw=(W-2*M)/3;
+    draw(C.ink);doc.setLineWidth(0.25);doc.rect(M-1.4,y-1.4,W-2*M+2.8,h+2.8);
+    fill(C.card);doc.setLineWidth(0.4);doc.rect(M,y,W-2*M,h,"FD");
+    [["BUDGET",money(m.budget),C.ink],["SPENT",money(sp),C.ink],[left<0?"OVERSPENT":"LEFT",money(Math.abs(left)),left<0?C.red:C.ink]].forEach(function(c,i){
+      var x=M+6+i*cw;
+      doc.setFont("courier","normal");doc.setFontSize(8.5);txt(C.muted);doc.text(c[0],x,y+9);
+      doc.setFont("times","bold");doc.setFontSize(15);txt(c[2]);doc.text(c[1],x,y+19);
+    });
+    // transactions
+    y=98;doc.setFont("times","bold");doc.setFontSize(17);txt(C.ink);doc.text("Transactions",M,y);y+=9;
+    head();
+    var run=m.budget;
+    if(!m.tx.length){doc.setFont("courier","normal");doc.setFontSize(10);txt(C.muted);doc.text("No transactions this month.",M,y)}
+    m.tx.forEach(function(t){
+      run-=t.amount;
+      var lines=doc.splitTextToSize(t.note?clean(t.note):"No note",70), rh=lines.length*4.6+4.4;
+      if(y+rh>H-24){doc.addPage();page();y=56;head()}
+      var d=new Date(t.date).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+      doc.setFont("courier","normal");doc.setFontSize(8.5);txt(C.muted);doc.text(clean(d),M,y);
+      doc.setFont("courier",t.note?"bold":"normal");doc.setFontSize(9.5);txt(t.note?C.ink:C.muted);doc.text(lines,M+34,y);
+      doc.setFont("courier","bold");txt(C.ink);doc.text("-"+money(t.amount),W-M-36,y,{align:"right"});
+      doc.setFont("courier","normal");txt(run<0?C.red:C.muted);doc.text(money(run),W-M,y,{align:"right"});
+      draw(C.muted);doc.setLineWidth(0.2);doc.setLineDashPattern([0.4,1],0);doc.line(M,y+(lines.length-1)*4.6+2.5,W-M,y+(lines.length-1)*4.6+2.5);doc.setLineDashPattern([],0);
+      y+=rh;
+    });
+    if(m.tx.length){
+      if(y>H-30){doc.addPage();page();y=56}
+      y+=3;draw(C.ink);doc.setLineWidth(0.25);doc.line(M,y,W-M,y);doc.setLineWidth(0.8);doc.line(M,y+1.6,W-M,y+1.6);
+      doc.setFont("times","bold");doc.setFontSize(12);txt(C.ink);doc.text("Total spent",M,y+9);doc.text(money(sp),W-M,y+9,{align:"right"});
+    }
+    var n=doc.getNumberOfPages();
+    for(var i=1;i<=n;i++){
+      doc.setPage(i);draw(C.brass);doc.setLineWidth(0.3);doc.line(M,H-15,W-M,H-15);
+      doc.setFont("courier","normal");doc.setFontSize(8);txt(C.muted);
+      doc.text("The Monthly Ledger",M,H-10);doc.text("Page "+i+" of "+n,W-M,H-10,{align:"right"});
+    }
+    doc.save("ledger-"+k+".pdf");
+  }
   function profileView(){
     var v=$("view"), real=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0");
     var keys=Object.keys(state.months).filter(function(k){return k<=real}).sort().reverse();
@@ -139,9 +203,10 @@ li .bal{text-align:right;color:var(--muted);font-size:.8rem}
     var m=state.months[stmtKey];
     if(!m){screen="profile";render();return}
     var sp=spentOf(m), left=m.budget-sp, v=$("view");
-    v.innerHTML='<button id="bk" type="button">&lsaquo; Back to profile</button><h2>'+label(stmtKey)+'</h2><div class="sum"><div><span>Budget</span><span>'+fmt.format(m.budget)+'</span></div><div><span>Spent</span><span>'+fmt.format(sp)+'</span></div><div><span>'+(left<0?'Overspent':'Left')+'</span><span'+(left<0?' style="color:var(--red)"':'')+'>'+fmt.format(Math.abs(left))+'</span></div></div><h2>Statement</h2>'+txList(m);
+    v.innerHTML='<div style="display:flex;justify-content:space-between;gap:10px"><button id="bk" type="button">&lsaquo; Back to profile</button><button id="dl" class="solid" type="button">Download PDF</button></div><h2>'+label(stmtKey)+'</h2><div class="sum"><div><span>Budget</span><span>'+fmt.format(m.budget)+'</span></div><div><span>Spent</span><span>'+fmt.format(sp)+'</span></div><div><span>'+(left<0?'Overspent':'Left')+'</span><span'+(left<0?' style="color:var(--red)"':'')+'>'+fmt.format(Math.abs(left))+'</span></div></div><h2>Statement</h2>'+txList(m);
     v.onclick=null;
     $("bk").onclick=function(){screen="profile";render()};
+    $("dl").onclick=function(){makePdf(stmtKey)};
   }
   function render(){
     document.querySelector(".nav").style.display=(screen!=="ledger"||(cloud&&!uid))?"none":"";
